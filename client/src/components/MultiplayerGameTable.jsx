@@ -5,49 +5,107 @@ import Scoreboard from './Scoreboard';
 
 let socket;
 
-export default function MultiplayerGameTable({ userName, roomId, onBack }) {
+const CANNED_MESSAGES = [
+    "Good luck!",
+    "Nice hand!",
+    "Well played!",
+    "GG!",
+    "What a flop!"
+];
+
+export default function MultiplayerGameTable({ userName, roomId, onBackToMenu, onStartSingleplayer }) {
     const [gameState, setGameState] = useState(null);
     const [joined, setJoined] = useState(false);
     const [waiting, setWaiting] = useState(false);
-    const [winAnimation, setWinAnimation] = useState(false);
-    const [loseAnimation, setLoseAnimation] = useState(false);
+    const [joinError, setJoinError] = useState(null);
+
+    const [selectedMessage, setSelectedMessage] = useState('');
+    const [playerIndex, setPlayerIndex] = useState(null);
 
     useEffect(() => {
-        socket = io("http://localhost:3001"); // Change to your server address
+        socket = io("http://localhost:3001");
         socket.emit('joinRoom', roomId, (response) => {
             if (response.status === 'ok') {
                 if (response.playerCount < 2) {
                     setWaiting(true);
                 }
                 setJoined(true);
+            } else if (response.status === 'full') {
+                setJoinError("Room is full or cannot join.");
             } else {
-                alert('Room is full or cannot join.');
-                onBack();
+                setJoinError("Unknown error joining the room.");
             }
         });
 
         socket.on('gameStateUpdate', (state) => {
+            if (!state) return;
+
+            if (state.sessionTerminated) {
+                setGameState(state);
+                setWaiting(false);
+                return;
+            }
+
             setGameState(state);
             setWaiting(false);
-            // handle animations if necessary based on messages in state
+
+            if (state.playerMapping && playerIndex === null && socket && socket.id) {
+                const myIndex = state.playerMapping[socket.id];
+                setPlayerIndex(myIndex);
+            }
         });
 
         return () => {
             socket.disconnect();
         };
-    }, [roomId, onBack]);
+    }, [roomId, playerIndex]);
+
+    function sendAction(type) {
+        socket.emit('action', roomId, { type });
+    }
+
+    function sendCannedMessage(e) {
+        e.preventDefault();
+        if (selectedMessage) {
+            socket.emit('chatMessage', roomId, `[${userName}]: ${selectedMessage}`);
+            setSelectedMessage('');
+        }
+    }
+
+    // Handling states
+    if (joinError) {
+        return (
+            <div className="flex flex-col items-center justify-center min-h-screen bg-black bg-pattern text-white p-5">
+                <h2 className="text-2xl font-bold mb-4">{joinError}</h2>
+                <div className="space-x-2">
+                    <button
+                        onClick={onBackToMenu}
+                        className="bg-gray-600 px-4 py-2 rounded hover:bg-gray-500"
+                    >
+                        Back to Menu
+                    </button>
+                    <button
+                        onClick={onStartSingleplayer}
+                        className="bg-purple-600 px-4 py-2 rounded hover:bg-purple-500"
+                    >
+                        Singleplayer
+                    </button>
+                </div>
+            </div>
+        );
+    }
 
     if (!joined) {
-        return <div className="text-white">Joining room...</div>;
+        return <div className="text-white flex flex-col items-center justify-center min-h-screen bg-black bg-pattern">Joining room...</div>;
     }
 
     if (waiting) {
         return (
-            <div className="text-white flex flex-col items-center">
+            <div className="text-white flex flex-col items-center justify-center min-h-screen bg-black bg-pattern">
                 <h2 className="text-3xl font-bold text-yellow-400">Waiting for another player...</h2>
                 <p className="text-gray-300 mt-2">Room: {roomId}</p>
                 <button
-                    onClick={onBack}
+                    onClick={onBackToMenu}
                     className="mt-4 bg-gray-600 px-4 py-2 rounded hover:bg-gray-500"
                 >
                     Cancel
@@ -57,36 +115,45 @@ export default function MultiplayerGameTable({ userName, roomId, onBack }) {
     }
 
     if (!gameState) {
-        return <div className="text-white">Loading game state...</div>;
+        return <div className="text-white flex flex-col items-center justify-center min-h-screen bg-black bg-pattern">Loading game state...</div>;
     }
 
-    function sendAction(type) {
-        socket.emit('action', roomId, { type });
+    const { dealerHand, communityCards, playerHands, message, roundOver, sessionTerminated, messages = [] } = gameState;
+
+    if (sessionTerminated) {
+        return (
+            <div className="text-white flex flex-col items-center justify-center min-h-screen bg-black bg-pattern p-5">
+                <h2 className="text-2xl font-bold mb-4">This game session is no longer active.</h2>
+                {message && <p className="mb-4">{message}</p>}
+                <div className="space-x-2">
+                    <button
+                        onClick={onBackToMenu}
+                        className="bg-gray-600 px-4 py-2 rounded hover:bg-gray-500"
+                    >
+                        Back to Menu
+                    </button>
+                    <button
+                        onClick={onStartSingleplayer}
+                        className="bg-purple-600 px-4 py-2 rounded hover:bg-purple-500"
+                    >
+                        Singleplayer
+                    </button>
+                </div>
+            </div>
+        );
     }
 
-    const { dealerHand, communityCards, playerHands, message, roundOver } = gameState;
-    // For simplicity, assume playerHands[0] is this player, playerHands[1] is opponent
+    const myHand = (playerIndex !== null && playerHands && playerHands[playerIndex]) ? playerHands[playerIndex] : [];
 
     return (
         <div className="relative flex flex-col items-center min-h-screen bg-black bg-pattern text-white p-5">
-            {winAnimation && (
-                <div className="absolute inset-0 pointer-events-none flex items-center justify-center z-10">
-                    <div className="bg-green-500 opacity-50 animate-ping w-64 h-64 rounded-full"></div>
-                </div>
-            )}
-            {loseAnimation && (
-                <div className="absolute inset-0 pointer-events-none flex items-center justify-center z-10">
-                    <div className="animate-shake w-full h-full"></div>
-                </div>
-            )}
-
             {/* Top Bar */}
             <div className="w-full max-w-5xl flex justify-between mb-4">
                 <Scoreboard />
                 <div className="text-white text-xl font-semibold">{userName}</div>
                 <button
                     className="bg-purple-600 text-white px-4 py-2 rounded hover:bg-purple-500"
-                    onClick={onBack}
+                    onClick={onBackToMenu}
                 >
                     Exit
                 </button>
@@ -96,10 +163,8 @@ export default function MultiplayerGameTable({ userName, roomId, onBack }) {
                 🃏 Texas Hold'em Multiplayer 🃏
             </h1>
 
-            {/* Poker Table */}
             <div className="relative w-full max-w-5xl flex flex-col items-center rounded-full p-10 bg-gradient-to-br from-gray-900 to-gray-800 shadow-2xl border-8 border-gray-700">
-
-                {/* Dealer Hand (or could be a "board" role in multiplayer) */}
+                {/* Dealer Hand */}
                 <div className="mb-6">
                     <h2 className="text-2xl mb-2 text-center">Dealer's Hand</h2>
                     <Hand cards={dealerHand} hidden={true} />
@@ -136,10 +201,10 @@ export default function MultiplayerGameTable({ userName, roomId, onBack }) {
                     </button>
                 </div>
 
-                {/* Player Hand */}
+                {/* Player's Hand */}
                 <div className="mt-6">
                     <h2 className="text-2xl mb-2 text-center">{userName}'s Hand</h2>
-                    <Hand cards={playerHands[0]} hidden={false} />
+                    <Hand cards={myHand} hidden={false} />
                 </div>
             </div>
 
@@ -149,7 +214,7 @@ export default function MultiplayerGameTable({ userName, roomId, onBack }) {
                 </div>
             )}
 
-            {roundOver && (
+            {roundOver && !sessionTerminated && (
                 <button
                     onClick={() => sendAction('playAgain')}
                     className="mt-4 bg-green-500 text-white font-bold py-2 px-4 rounded hover:bg-green-400 z-20"
@@ -157,6 +222,39 @@ export default function MultiplayerGameTable({ userName, roomId, onBack }) {
                     Play Again
                 </button>
             )}
+
+            {/* Chat Window (Canned Messages Only) */}
+            <div className="w-full max-w-5xl mt-8 flex flex-col">
+                <div className="bg-gray-800 bg-opacity-50 rounded p-4 h-48 overflow-auto mb-2">
+                    <h3 className="font-bold mb-2">Chat</h3>
+                    {messages.length === 0 && <div className="text-gray-400 text-sm">No messages yet</div>}
+                    {messages.map((m, i) => (
+                        <div key={i} className="mb-1 text-sm break-words">
+                            {m.text}
+                        </div>
+                    ))}
+                </div>
+                <form onSubmit={sendCannedMessage} className="flex space-x-2 items-center">
+                    <select
+                        className="px-3 py-2 rounded text-black"
+                        value={selectedMessage}
+                        onChange={(e) => setSelectedMessage(e.target.value)}
+                        disabled={sessionTerminated}
+                    >
+                        <option value="">Select a message</option>
+                        {CANNED_MESSAGES.map((msg, idx) => (
+                            <option key={idx} value={msg}>{msg}</option>
+                        ))}
+                    </select>
+                    <button
+                        className="bg-purple-600 px-4 py-2 rounded text-white hover:bg-purple-500 font-bold"
+                        type="submit"
+                        disabled={sessionTerminated || !selectedMessage}
+                    >
+                        Send
+                    </button>
+                </form>
+            </div>
         </div>
     );
 }

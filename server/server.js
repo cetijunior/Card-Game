@@ -2,24 +2,30 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 
-const PORT = 3001; // Adjust the port as needed
+const PORT = 3001;
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
     cors: {
-        origin: "*", // For testing, allow all. In production, restrict this.
+        origin: "*",
     }
 });
 
-// In-memory store of rooms: roomId -> { players: [socketId], gameState: {} }
 let rooms = {};
+// rooms[roomId] = {
+//   players: [socketId1, socketId2],
+//   gameState: {
+//     phase, deck, playerHands, dealerHand, communityCards, message, roundOver, playerMapping
+//   },
+//   messages: [] // array of {sender, text}
+// }
 
 io.on('connection', (socket) => {
     console.log('A user connected:', socket.id);
 
     socket.on('joinRoom', (roomId, callback) => {
         if (!rooms[roomId]) {
-            rooms[roomId] = { players: [], gameState: null };
+            rooms[roomId] = { players: [], gameState: null, messages: [] };
         }
         const room = rooms[roomId];
 
@@ -30,12 +36,16 @@ io.on('connection', (socket) => {
             callback({ status: 'ok', playerCount: room.players.length });
 
             if (room.players.length === 2) {
-                // Initiate a new game once 2 players are present
+                // Both players present, start game
                 const initialState = createInitialGameState();
+                initialState.playerMapping = {
+                    [room.players[0]]: 0,
+                    [room.players[1]]: 1
+                };
                 room.gameState = initialState;
-                io.to(roomId).emit('gameStateUpdate', initialState);
+                // On start of game, messages array is empty
+                emitGameStateUpdate(roomId);
             }
-
         } else {
             callback({ status: 'full' });
         }
@@ -46,35 +56,55 @@ io.on('connection', (socket) => {
         if (room && room.gameState) {
             const updatedState = handleAction(room.gameState, action);
             room.gameState = updatedState;
-            io.to(roomId).emit('gameStateUpdate', updatedState);
+            emitGameStateUpdate(roomId);
         }
+    });
+
+    socket.on('chatMessage', (roomId, message) => {
+        const room = rooms[roomId];
+        if (!room) return;
+        // Save the message in memory
+        room.messages.push({ sender: socket.id, text: message });
+        // Send chat update to all in room
+        emitGameStateUpdate(roomId);
     });
 
     socket.on('disconnect', () => {
         console.log('A user disconnected:', socket.id);
         for (const [rid, room] of Object.entries(rooms)) {
             if (room.players.includes(socket.id)) {
-                // Remove player
                 room.players = room.players.filter(p => p !== socket.id);
-                // If no players remain, clear the room
+                // If no players remain, delete the room entirely
                 if (room.players.length === 0) {
                     delete rooms[rid];
                 } else {
-                    // If one player left, you may reset the game or wait for another to join
-                    // For simplicity, we just clear the gameState
-                    room.gameState = null;
-                    io.to(rid).emit('gameStateUpdate', { message: "The other player left. Waiting for new player..." });
+                    // One player left, session is terminated
+                    room.gameState = {
+                        message: "The other player left. Room is no longer active.",
+                        roundOver: true,
+                        sessionTerminated: true
+                    };
+                    // Clear messages as well or keep them? Let's keep them for reference
+                    // room.messages = [];
+                    emitGameStateUpdate(rid);
                 }
             }
         }
     });
 });
 
+// Emit the current game state plus messages to all players in the room
+function emitGameStateUpdate(roomId) {
+    const room = rooms[roomId];
+    if (!room) return;
+    const payload = { ...room.gameState, messages: room.messages || [] };
+    io.to(roomId).emit('gameStateUpdate', payload);
+}
+
 // ---------------------------------------------
-// Helper Functions and Game Logic
+// Game Logic (Simplified)
 // ---------------------------------------------
 
-// A simplified deck, dealing, and scoring logic:
 const SUITS = ["♥️", "♦️", "♣️", "♠️"];
 const RANKS = ["2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K", "A"];
 
@@ -83,81 +113,79 @@ function createInitialGameState() {
     return {
         phase: 'preflop',
         deck,
-        playerHands,
+        playerHands,     // [handForPlayer0, handForPlayer1]
         dealerHand,
         communityCards,
         message: '',
-        roundOver: false
+        roundOver: false,
+        playerMapping: {} // Will be set once both players join
     };
 }
 
 function dealInitialCards() {
     let deck = initializeDeck();
     deck = shuffleDeck(deck);
+
     const playerHand1 = [deck[0], deck[1]];
     const playerHand2 = [deck[2], deck[3]];
     const dealerHand = [deck[4], deck[5]];
-    // Community cards will be revealed as the game progresses
+
+    const remainingDeck = deck.slice(6);
+    const communityCards = [];
+
     return {
-        deck: deck.slice(6),
+        deck: remainingDeck,
         playerHands: [playerHand1, playerHand2],
         dealerHand,
-        communityCards: []
+        communityCards
     };
 }
 
 function handleAction(state, action) {
     // action = { type: 'fold' | 'call' | 'raise' | 'playAgain' }
-    // This is highly simplified and does not handle full Texas Hold'em logic.
-
     if (action.type === 'fold') {
         state.message = 'A player folded. Dealer wins!';
         state.roundOver = true;
         return state;
     }
 
+    if (action.type === 'playAgain') {
+        const newState = createInitialGameState();
+        newState.playerMapping = state.playerMapping;
+        return newState;
+    }
+
     if (action.type === 'call' || action.type === 'raise') {
-        // Move the game forward through phases for simplicity
         if (state.phase === 'preflop') {
-            // reveal flop
             state.communityCards = state.deck.slice(0, 3);
             state.deck = state.deck.slice(3);
             state.phase = 'flop';
             state.message = 'Flop revealed';
         } else if (state.phase === 'flop') {
-            // turn
             state.communityCards.push(state.deck[0]);
             state.deck = state.deck.slice(1);
             state.phase = 'turn';
             state.message = 'Turn card revealed';
         } else if (state.phase === 'turn') {
-            // river
             state.communityCards.push(state.deck[0]);
             state.deck = state.deck.slice(1);
             state.phase = 'river';
             state.message = 'River card revealed';
         } else if (state.phase === 'river') {
-            // showdown
             return showdown(state);
         }
         return state;
-    }
-
-    if (action.type === 'playAgain') {
-        return createInitialGameState();
     }
 
     return state;
 }
 
 function showdown(state) {
-    // Compare hands and determine a winner. For simplicity, random winner:
     const player1Score = evaluateSimpleHand([...state.playerHands[0], ...state.communityCards]);
     const player2Score = evaluateSimpleHand([...state.playerHands[1], ...state.communityCards]);
     const dealerScore = evaluateSimpleHand([...state.dealerHand, ...state.communityCards]);
 
     let msg = `Player1: ${player1Score}, Player2: ${player2Score}, Dealer: ${dealerScore}\n`;
-    // Very simplified logic: highest score wins
     const highest = Math.max(player1Score, player2Score, dealerScore);
     let winners = [];
     if (player1Score === highest) winners.push("Player 1");
@@ -195,7 +223,6 @@ function shuffleDeck(deck) {
 }
 
 function evaluateSimpleHand(cards) {
-    // Just sum the ranks as numbers. Not real poker logic.
     let score = 0;
     for (let card of cards) {
         score += rankToValue(card.rank);
@@ -213,7 +240,6 @@ function rankToValue(rank) {
     }
 }
 
-// Start the server
 server.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
 });
