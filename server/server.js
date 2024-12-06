@@ -1,6 +1,6 @@
-const express = require('express');
-const http = require('http');
-const { Server } = require('socket.io');
+const express = require("express");
+const http = require("http");
+const { Server } = require("socket.io");
 
 const PORT = 3001;
 const app = express();
@@ -8,24 +8,25 @@ const server = http.createServer(app);
 const io = new Server(server, {
     cors: {
         origin: "*",
-    }
+    },
 });
 
 let rooms = {};
+
+// Room Structure
 // rooms[roomId] = {
 //   players: [socketId1, socketId2],
-//   gameState: {
-//     phase, deck, playerHands, dealerHand, communityCards, message, roundOver, playerMapping
-//   },
-//   messages: [] // array of {sender, text}
-// }
+//   gameState: { ... },
+//   messages: [],
+//   currentTurn: 0 // Index of the player whose turn it is
+// };
 
-io.on('connection', (socket) => {
-    console.log('A user connected:', socket.id);
+io.on("connection", (socket) => {
+    console.log("A user connected:", socket.id);
 
-    socket.on('joinRoom', (roomId, callback) => {
+    socket.on("joinRoom", (roomId, callback) => {
         if (!rooms[roomId]) {
-            rooms[roomId] = { players: [], gameState: null, messages: [] };
+            rooms[roomId] = { players: [], gameState: null, messages: [], currentTurn: 0 };
         }
         const room = rooms[roomId];
 
@@ -33,59 +34,65 @@ io.on('connection', (socket) => {
             room.players.push(socket.id);
             socket.join(roomId);
             console.log(`Player ${socket.id} joined room ${roomId}`);
-            callback({ status: 'ok', playerCount: room.players.length });
+            callback({ status: "ok", playerCount: room.players.length });
 
             if (room.players.length === 2) {
-                // Both players present, start game
+                // Both players present; start the game
                 const initialState = createInitialGameState();
                 initialState.playerMapping = {
                     [room.players[0]]: 0,
-                    [room.players[1]]: 1
+                    [room.players[1]]: 1,
                 };
                 room.gameState = initialState;
-                // On start of game, messages array is empty
                 emitGameStateUpdate(roomId);
             }
         } else {
-            callback({ status: 'full' });
+            callback({ status: "full" });
         }
     });
 
-    socket.on('action', (roomId, action) => {
+    socket.on("action", (roomId, action) => {
         const room = rooms[roomId];
         if (room && room.gameState) {
-            const updatedState = handleAction(room.gameState, action);
+            const playerIndex = room.gameState.playerMapping[socket.id];
+            if (playerIndex !== room.currentTurn) {
+                // Not the player's turn
+                socket.emit("invalidAction", "It's not your turn!");
+                return;
+            }
+
+            const updatedState = handleAction(room.gameState, action, playerIndex);
             room.gameState = updatedState;
+
+            // Advance turn to the next player
+            room.currentTurn = (room.currentTurn + 1) % room.players.length;
             emitGameStateUpdate(roomId);
         }
     });
 
-    socket.on('chatMessage', (roomId, message) => {
+    socket.on("chatMessage", (roomId, message) => {
         const room = rooms[roomId];
         if (!room) return;
-        // Save the message in memory
+
+        // Save and broadcast the message
         room.messages.push({ sender: socket.id, text: message });
-        // Send chat update to all in room
         emitGameStateUpdate(roomId);
     });
 
-    socket.on('disconnect', () => {
-        console.log('A user disconnected:', socket.id);
+    socket.on("disconnect", () => {
+        console.log("A user disconnected:", socket.id);
         for (const [rid, room] of Object.entries(rooms)) {
             if (room.players.includes(socket.id)) {
-                room.players = room.players.filter(p => p !== socket.id);
-                // If no players remain, delete the room entirely
+                room.players = room.players.filter((p) => p !== socket.id);
                 if (room.players.length === 0) {
                     delete rooms[rid];
                 } else {
-                    // One player left, session is terminated
+                    // Notify remaining player
                     room.gameState = {
-                        message: "The other player left. Room is no longer active.",
+                        message: "The other player has disconnected. Game terminated.",
                         roundOver: true,
-                        sessionTerminated: true
+                        sessionTerminated: true,
                     };
-                    // Clear messages as well or keep them? Let's keep them for reference
-                    // room.messages = [];
                     emitGameStateUpdate(rid);
                 }
             }
@@ -93,17 +100,18 @@ io.on('connection', (socket) => {
     });
 });
 
-// Emit the current game state plus messages to all players in the room
+// Helper Functions
 function emitGameStateUpdate(roomId) {
     const room = rooms[roomId];
     if (!room) return;
-    const payload = { ...room.gameState, messages: room.messages || [] };
-    io.to(roomId).emit('gameStateUpdate', payload);
-}
 
-// ---------------------------------------------
-// Game Logic (Simplified)
-// ---------------------------------------------
+    const payload = {
+        ...room.gameState,
+        messages: room.messages || [],
+        currentTurn: room.currentTurn,
+    };
+    io.to(roomId).emit("gameStateUpdate", payload);
+}
 
 const SUITS = ["♥️", "♦️", "♣️", "♠️"];
 const RANKS = ["2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K", "A"];
@@ -111,14 +119,14 @@ const RANKS = ["2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K", "A"]
 function createInitialGameState() {
     const { deck, playerHands, dealerHand, communityCards } = dealInitialCards();
     return {
-        phase: 'preflop',
+        phase: "preflop",
         deck,
-        playerHands,     // [handForPlayer0, handForPlayer1]
+        playerHands,
         dealerHand,
         communityCards,
-        message: '',
+        message: "",
         roundOver: false,
-        playerMapping: {} // Will be set once both players join
+        playerMapping: {},
     };
 }
 
@@ -137,41 +145,40 @@ function dealInitialCards() {
         deck: remainingDeck,
         playerHands: [playerHand1, playerHand2],
         dealerHand,
-        communityCards
+        communityCards,
     };
 }
 
-function handleAction(state, action) {
-    // action = { type: 'fold' | 'call' | 'raise' | 'playAgain' }
-    if (action.type === 'fold') {
-        state.message = 'A player folded. Dealer wins!';
+function handleAction(state, action, playerIndex) {
+    if (action.type === "fold") {
+        state.message = `Player ${playerIndex + 1} folded. Dealer wins!`;
         state.roundOver = true;
         return state;
     }
 
-    if (action.type === 'playAgain') {
+    if (action.type === "playAgain") {
         const newState = createInitialGameState();
         newState.playerMapping = state.playerMapping;
         return newState;
     }
 
-    if (action.type === 'call' || action.type === 'raise') {
-        if (state.phase === 'preflop') {
+    if (action.type === "call" || action.type === "raise") {
+        if (state.phase === "preflop") {
             state.communityCards = state.deck.slice(0, 3);
             state.deck = state.deck.slice(3);
-            state.phase = 'flop';
-            state.message = 'Flop revealed';
-        } else if (state.phase === 'flop') {
+            state.phase = "flop";
+            state.message = "Flop revealed";
+        } else if (state.phase === "flop") {
             state.communityCards.push(state.deck[0]);
             state.deck = state.deck.slice(1);
-            state.phase = 'turn';
-            state.message = 'Turn card revealed';
-        } else if (state.phase === 'turn') {
+            state.phase = "turn";
+            state.message = "Turn card revealed";
+        } else if (state.phase === "turn") {
             state.communityCards.push(state.deck[0]);
             state.deck = state.deck.slice(1);
-            state.phase = 'river';
-            state.message = 'River card revealed';
-        } else if (state.phase === 'river') {
+            state.phase = "river";
+            state.message = "River card revealed";
+        } else if (state.phase === "river") {
             return showdown(state);
         }
         return state;
@@ -193,7 +200,7 @@ function showdown(state) {
     if (dealerScore === highest) winners.push("Dealer");
 
     if (winners.length > 1) {
-        msg += "It's a tie between: " + winners.join(' and ');
+        msg += "It's a tie between: " + winners.join(" and ");
     } else {
         msg += winners[0] + " wins!";
     }
@@ -232,10 +239,10 @@ function evaluateSimpleHand(cards) {
 
 function rankToValue(rank) {
     switch (rank) {
-        case 'A': return 14;
-        case 'K': return 13;
-        case 'Q': return 12;
-        case 'J': return 11;
+        case "A": return 14;
+        case "K": return 13;
+        case "Q": return 12;
+        case "J": return 11;
         default: return parseInt(rank, 10);
     }
 }

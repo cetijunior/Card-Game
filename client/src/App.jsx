@@ -18,7 +18,7 @@ export default function App() {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-black bg-pattern text-white p-5">
         <h1 className="text-4xl font-bold text-yellow-400 mb-5">Welcome, {userName}</h1>
-        <div className="space-y-4">
+        <div className="space-y-4 space-x-4">
           <button
             className="bg-purple-600 px-4 py-2 rounded hover:bg-purple-500 font-bold"
             onClick={() => setMode('single')}

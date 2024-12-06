@@ -1,7 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { io } from 'socket.io-client';
 import Hand from './Hand';
-import Scoreboard from './Scoreboard';
 
 let socket;
 
@@ -21,6 +20,12 @@ export default function MultiplayerGameTable({ userName, roomId, onBackToMenu, o
 
     const [selectedMessage, setSelectedMessage] = useState('');
     const [playerIndex, setPlayerIndex] = useState(null);
+
+    // Session statistics
+    const [sessionStats, setSessionStats] = useState({ games: 0, wins: 0, losses: 0 });
+
+    // To detect changes in roundOver, use a ref or track old value
+    const prevRoundOverRef = useRef(false);
 
     useEffect(() => {
         socket = io("http://localhost:3001");
@@ -59,6 +64,54 @@ export default function MultiplayerGameTable({ userName, roomId, onBackToMenu, o
             socket.disconnect();
         };
     }, [roomId, playerIndex]);
+
+    useEffect(() => {
+        if (gameState) {
+            const { roundOver, message } = gameState;
+            const prevRoundOver = prevRoundOverRef.current;
+            if (roundOver && !prevRoundOver) {
+                // A round just ended
+                updateSessionStats(message);
+            }
+            prevRoundOverRef.current = roundOver;
+        }
+    }, [gameState]);
+
+    function updateSessionStats(message) {
+        // message might look like: "Player1: 58, Player2: 52, Dealer: 51\nPlayer 1 wins!"
+        // We'll parse who won
+        if (!message) return;
+        setSessionStats(prev => {
+            let { games, wins, losses } = prev;
+            games += 1; // One more game played
+            const playerStr = playerIndex === 0 ? "Player 1" : "Player 2";
+
+            if (message.includes("wins!")) {
+                if (message.includes(playerStr + " wins!")) {
+                    wins += 1;
+                } else {
+                    // If it's a tie or someone else won
+                    if (!message.includes("tie")) {
+                        losses += 1;
+                    }
+                }
+            } else {
+                // Maybe it's a fold scenario or tie
+                if (message.includes("tie")) {
+                    // no change in wins/losses
+                } else if (message.includes("folded")) {
+                    // If a fold happened, dealer wins, or other player wins -> we lost
+                    if (!message.includes(playerStr)) {
+                        losses += 1;
+                    } else {
+                        wins += 1;
+                    }
+                }
+            }
+
+            return { games, wins, losses };
+        });
+    }
 
     function sendAction(type) {
         socket.emit('action', roomId, { type });
@@ -147,10 +200,18 @@ export default function MultiplayerGameTable({ userName, roomId, onBackToMenu, o
 
     return (
         <div className="relative flex flex-col items-center min-h-screen bg-black bg-pattern text-white p-5">
-            {/* Top Bar */}
-            <div className="w-full max-w-5xl flex justify-between mb-4">
-                <Scoreboard />
-                <div className="text-white text-xl font-semibold">{userName}</div>
+            {/* Top Bar with Session Stats */}
+            <div className="w-full max-w-5xl flex justify-between mb-4 items-center">
+                <div className="space-y-1 bg-black bg-opacity-50 px-4 py-2 rounded">
+                    <div>Games: {sessionStats.games}</div>
+                    <div>Wins: {sessionStats.wins}</div>
+                    <div>Losses: {sessionStats.losses}</div>
+                    <div>Win Rate: {sessionStats.games > 0 ? ((sessionStats.wins / sessionStats.games) * 100).toFixed(2) + '%' : '0%'}
+                    </div>
+                </div>
+                <div className="text-white text-2xl font-semibold">
+                    {userName}
+                </div>
                 <button
                     className="bg-purple-600 text-white px-4 py-2 rounded hover:bg-purple-500"
                     onClick={onBackToMenu}
@@ -163,16 +224,16 @@ export default function MultiplayerGameTable({ userName, roomId, onBackToMenu, o
                 🃏 Texas Hold'em Multiplayer 🃏
             </h1>
 
-            <div className="relative w-full max-w-5xl flex flex-col items-center rounded-full p-10 bg-gradient-to-br from-gray-900 to-gray-800 shadow-2xl border-8 border-gray-700">
+            <div className="relative w-full max-w-5xl flex flex-col items-center rounded-full p-10 bg-gradient-to-br from-gray-900 to-gray-800 shadow-2xl border-8 border-gray-700 space-y-6">
                 {/* Dealer Hand */}
-                <div className="mb-6">
-                    <h2 className="text-2xl mb-2 text-center">Dealer's Hand</h2>
+                <div className="mb-4 text-center">
+                    <h2 className="text-2xl mb-2 font-semibold">Dealer's Hand</h2>
                     <Hand cards={dealerHand} hidden={true} />
                 </div>
 
                 {/* Community Cards */}
-                <div className="mb-6">
-                    <h2 className="text-2xl mb-2 text-center">Community Cards</h2>
+                <div className="mb-4 text-center">
+                    <h2 className="text-2xl mb-2 font-semibold">Community Cards</h2>
                     <Hand cards={communityCards} hidden={false} />
                 </div>
 
@@ -202,8 +263,8 @@ export default function MultiplayerGameTable({ userName, roomId, onBackToMenu, o
                 </div>
 
                 {/* Player's Hand */}
-                <div className="mt-6">
-                    <h2 className="text-2xl mb-2 text-center">{userName}'s Hand</h2>
+                <div className="mt-4 text-center">
+                    <h2 className="text-2xl mb-2 font-semibold">{userName}'s Hand</h2>
                     <Hand cards={myHand} hidden={false} />
                 </div>
             </div>
