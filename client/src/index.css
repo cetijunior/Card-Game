@@ -1,0 +1,44 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    font-family: 'Poppins', sans-serif;
+  }
+}
+
+@keyframes shake {
+  0% {
+    transform: translate(0, 0);
+  }
+
+  20% {
+    transform: translate(-5px, 0);
+  }
+
+  40% {
+    transform: translate(5px, 0);
+  }
+
+  60% {
+    transform: translate(-5px, 0);
+  }
+
+  80% {
+    transform: translate(5px, 0);
+  }
+
+  100% {
+    transform: translate(0, 0);
+  }
+}
+
+.animate-shake {
+  animation: shake 0.5s ease-in-out 3;
+}
+
+/* Add a subtle repeating pattern or a gradient background: */
+.bg-pattern {
+  background: radial-gradient(circle at center, #121212 0%, #000000 100%);
+}

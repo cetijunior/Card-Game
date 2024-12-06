@@ -1,0 +1,15 @@
+{
+  "name": "poker-server",
+  "version": "1.0.0",
+  "description": "A Node.js Socket.io server for a local multiplayer poker game",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "author": "CJ",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2",
+    "socket.io": "^4.6.1"
+  }
+}
