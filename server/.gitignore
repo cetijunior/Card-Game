@@ -1,0 +1,45 @@
+# Node modules
+node_modules/
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Build outputs
+dist/
+build/
+
+# Local environment files
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# MacOS system files
+.DS_Store
+
+# Editor directories and files
+.vscode/
+.idea/
+*.swp
+
+# Optional if you generate coverage reports
+coverage/
+
+# Optional lockfiles if you prefer not to commit them
+# (Some teams commit lock files to ensure consistent builds)
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# For the client folder (if applicable)
+client/node_modules/
+client/dist/
+
+# For the server folder (if applicable)
+server/node_modules/
