@@ -72,3 +72,29 @@ To get started with the project, follow these steps:
   - Express, Socket.io.
 
 This project provides a robust foundation for building a multiplayer card game with real-time communication and a modern web development stack.
+
+![Starter](https://github.com/user-attachments/assets/f8bf6ba2-08b6-4952-babc-8464e0532d4e)
+
+
+
+![Game Mode Selection](https://github.com/user-attachments/assets/01c1271f-ad86-4d13-acd8-afd239f3d86c)
+
+
+
+![Singleplayer Mode](https://github.com/user-attachments/assets/ac721f12-2410-4b57-b7a9-d3bec9b28e5b)
+
+
+
+![Win Animation](https://github.com/user-attachments/assets/ebfbb47a-7666-4bcb-a71e-99739684663d)
+
+
+
+![Room Creation](https://github.com/user-attachments/assets/23820f31-d689-40d5-900f-3381b111ceef)
+
+
+
+![Multiplayer Mode](https://github.com/user-attachments/assets/6bd1e03f-bb97-4589-ace5-c0376638c9e7)
+
+
+
+![Multiplayer Chat](https://github.com/user-attachments/assets/fd4f7dd8-7bcc-4962-aec4-28f710e5784e)
