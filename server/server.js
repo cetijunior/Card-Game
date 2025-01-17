@@ -13,31 +13,33 @@ const io = new Server(server, {
 
 let rooms = {};
 
-// Room Structure
-// rooms[roomId] = {
-//   players: [socketId1, socketId2],
-//   gameState: { ... },
-//   messages: [],
-//   currentTurn: 0 // Index of the player whose turn it is
-// };
-
 io.on("connection", (socket) => {
     console.log("A user connected:", socket.id);
 
-    socket.on("joinRoom", (roomId, callback) => {
+    socket.on("joinRoom", (roomId, userName, callback) => {
         if (!rooms[roomId]) {
-            rooms[roomId] = { players: [], gameState: null, messages: [], currentTurn: 0 };
+            rooms[roomId] = {
+                players: [],
+                gameState: null,
+                messages: [],
+                currentTurn: 0, // Initialize turn
+                usernames: {},
+                playAgainVotes: [],
+            };
         }
+
         const room = rooms[roomId];
 
         if (room.players.length < 2) {
             room.players.push(socket.id);
+            room.usernames[socket.id] = userName;
+
             socket.join(roomId);
-            console.log(`Player ${socket.id} joined room ${roomId}`);
+
+            console.log(`Player ${userName} (${socket.id}) joined room ${roomId}`);
             callback({ status: "ok", playerCount: room.players.length });
 
             if (room.players.length === 2) {
-                // Both players present; start the game
                 const initialState = createInitialGameState();
                 initialState.playerMapping = {
                     [room.players[0]]: 0,
@@ -45,26 +47,29 @@ io.on("connection", (socket) => {
                 };
                 room.gameState = initialState;
                 emitGameStateUpdate(roomId);
+            } else {
+                emitGameStateUpdate(roomId); // Inform player 1 that they're waiting for another player
             }
         } else {
             callback({ status: "full" });
         }
     });
 
+
     socket.on("action", (roomId, action) => {
         const room = rooms[roomId];
         if (room && room.gameState) {
             const playerIndex = room.gameState.playerMapping[socket.id];
             if (playerIndex !== room.currentTurn) {
-                // Not the player's turn
                 socket.emit("invalidAction", "It's not your turn!");
                 return;
             }
 
+            // Update the game state based on the action
             const updatedState = handleAction(room.gameState, action, playerIndex);
             room.gameState = updatedState;
 
-            // Advance turn to the next player
+            // Move to the next player's turn
             room.currentTurn = (room.currentTurn + 1) % room.players.length;
             emitGameStateUpdate(roomId);
         }
@@ -74,33 +79,31 @@ io.on("connection", (socket) => {
         const room = rooms[roomId];
         if (!room) return;
 
-        // Save and broadcast the message
-        room.messages.push({ sender: socket.id, text: message });
+        room.messages.push({ sender: room.usernames[socket.id], text: message });
         emitGameStateUpdate(roomId);
     });
 
     socket.on("disconnect", () => {
         console.log("A user disconnected:", socket.id);
-        for (const [rid, room] of Object.entries(rooms)) {
+        for (const [roomId, room] of Object.entries(rooms)) {
             if (room.players.includes(socket.id)) {
                 room.players = room.players.filter((p) => p !== socket.id);
+                delete room.usernames[socket.id];
                 if (room.players.length === 0) {
-                    delete rooms[rid];
+                    delete rooms[roomId];
                 } else {
-                    // Notify remaining player
                     room.gameState = {
                         message: "The other player has disconnected. Game terminated.",
                         roundOver: true,
                         sessionTerminated: true,
                     };
-                    emitGameStateUpdate(rid);
+                    emitGameStateUpdate(roomId);
                 }
             }
         }
     });
 });
 
-// Helper Functions
 function emitGameStateUpdate(roomId) {
     const room = rooms[roomId];
     if (!room) return;
@@ -108,13 +111,11 @@ function emitGameStateUpdate(roomId) {
     const payload = {
         ...room.gameState,
         messages: room.messages || [],
+        usernames: room.usernames,
         currentTurn: room.currentTurn,
     };
     io.to(roomId).emit("gameStateUpdate", payload);
 }
-
-const SUITS = ["♥️", "♦️", "♣️", "♠️"];
-const RANKS = ["2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K", "A"];
 
 function createInitialGameState() {
     const { deck, playerHands, dealerHand, communityCards } = dealInitialCards();
@@ -138,7 +139,7 @@ function dealInitialCards() {
     const playerHand2 = [deck[2], deck[3]];
     const dealerHand = [deck[4], deck[5]];
 
-    const remainingDeck = deck.slice(6);
+    const remainingDeck = deck.slice(6); // Remove dealt cards from the deck
     const communityCards = [];
 
     return {
@@ -148,6 +149,8 @@ function dealInitialCards() {
         communityCards,
     };
 }
+
+
 
 function handleAction(state, action, playerIndex) {
     if (action.type === "fold") {
@@ -211,6 +214,8 @@ function showdown(state) {
 }
 
 function initializeDeck() {
+    const SUITS = ["♥️", "♦️", "♣️", "♠️"];
+    const RANKS = ["2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K", "A"];
     const deck = [];
     for (let suit of SUITS) {
         for (let rank of RANKS) {

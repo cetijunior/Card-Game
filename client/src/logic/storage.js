@@ -1,15 +1,13 @@
-// Storage utility: handle user and score data in localStorage
-
 export function getUserName() {
-    return localStorage.getItem('poker_username') || '';
+    return localStorage.getItem("poker_username") || "";
 }
 
 export function setUserName(name) {
-    localStorage.setItem('poker_username', name);
+    localStorage.setItem("poker_username", name);
 }
 
 export function getScoreData() {
-    const data = localStorage.getItem('poker_scores');
+    const data = localStorage.getItem("poker_scores");
     return data ? JSON.parse(data) : { games: 0, wins: 0, losses: 0 };
 }
 
@@ -21,5 +19,5 @@ export function updateScoreData(isWin) {
     } else {
         data.losses += 1;
     }
-    localStorage.setItem('poker_scores', JSON.stringify(data));
+    localStorage.setItem("poker_scores", JSON.stringify(data));
 }
