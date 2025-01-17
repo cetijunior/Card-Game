@@ -1,9 +1,3 @@
-Deciding which workspace information to collect
-
-Collecting workspace information
-
-Filtering to most relevant information
-
 # Project Description
 
 ## Card Game Application
